@@ -1,0 +1,20 @@
+{
+	"$schema": "./node_modules/wrangler/config-schema.json",
+	"name": "flue-kya-agent",
+	"compatibility_date": "2026-06-01",
+	"compatibility_flags": ["nodejs_compat"],
+	// Workers Traces shows each agent response as a trace with agent-level
+	// spans: https://flueframework.com/docs/guide/observability/#cloudflare
+	"observability": { "traces": { "enabled": true } },
+	// The wallet is an application-owned Durable Object, so unlike the agent
+	// classes Flue generates, its binding is declared by hand.
+	"durable_objects": {
+		"bindings": [{ "name": "AGENT_WALLET", "class_name": "AgentWallet" }]
+	},
+	// Every agent generates a Durable Object class named after its identity
+	// (Kya -> FlueKyaAgent), and Cloudflare requires a migration entry for each
+	// one. Both classes share tag v1 because this Worker has never been
+	// deployed; once it has, a new class needs its own tag appended.
+	// https://flueframework.com/docs/guide/cloudflare-target/#managing-migrations
+	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["FlueKyaAgent", "AgentWallet"] }]
+}

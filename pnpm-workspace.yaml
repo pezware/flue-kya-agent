@@ -1,0 +1,26 @@
+# Supply-chain maturity floor: refuse any package version published less than
+# 5 days ago. A typosquat or a compromised release is usually pulled within
+# hours, so the delay costs nothing and catches the window where it matters.
+#
+# The unit is MINUTES. 5 days = 7200.
+#
+# Measured cost on 2026-09-17: this holds the project one Flue release behind
+# (2.0.5 rather than 2.0.8, published the day before). That is the floor doing
+# its job, not a misconfiguration. Bump a dependency by waiting, not by adding
+# it to minimumReleaseAgeExclude.
+minimumReleaseAge: 7200
+
+# Install scripts run arbitrary code as the installing user, so each one is
+# named here rather than allowed wholesale.
+#
+#   esbuild, workerd — must run: each fetches or links the platform binary the
+#     build and the local Workers runtime depend on.
+#   the rest — refused: @google/genai and protobufjs arrive transitively
+#     through Pi's provider set, which this agent does not use, and
+#     core-js-pure's script only prints a funding notice.
+allowBuilds:
+  esbuild: true
+  workerd: true
+  '@google/genai': false
+  core-js-pure: false
+  protobufjs: false

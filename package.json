@@ -1,0 +1,31 @@
+{
+	"name": "flue-kya-agent",
+	"private": true,
+	"type": "module",
+	"packageManager": "pnpm@12.4.2",
+	"engines": {
+		"node": ">=22.19.0"
+	},
+	"scripts": {
+		"dev": "vite dev",
+		"build": "vite build",
+		"deploy": "vite build && wrangler deploy",
+		"check:types": "tsc --noEmit",
+		"test": "vitest run"
+	},
+	"dependencies": {
+		"@flue/runtime": "^2.0.5",
+		"hono": "^4.7.0"
+	},
+	"devDependencies": {
+		"@cloudflare/vite-plugin": "^1.39.2",
+		"@cloudflare/workers-types": "^5.20260911.1",
+		"@flue/cli": "^2.0.5",
+		"@flue/vite": "^2.0.5",
+		"@types/node": "^22.10.10",
+		"typescript": "^7.0.2",
+		"vite": "^8.0.14",
+		"vitest": "^3.2.4",
+		"wrangler": "^4.113.0"
+	}
+}
