@@ -18,11 +18,27 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # mise installs the node and pnpm versions pinned in mise.toml, so CI and
-      # a laptop resolve dependencies with the same tools.
-      - uses: jdx/mise-action@v3
+      # This repo's Actions policy allows GitHub-owned actions plus four named
+      # patterns, and jdx/mise-action is not among them. So CI installs node
+      # and pnpm directly. mise still drives local development; the guard below
+      # stops the two from drifting.
+      - name: Check mise.toml and .node-version agree
+        run: |
+          mise_node="$(sed -nE 's/^node = "(.*)"$/\1/p' mise.toml)"
+          file_node="$(tr -d '[:space:]' < .node-version)"
+          if [ "$mise_node" != "$file_node" ]; then
+            echo "::error::mise.toml pins node $mise_node but .node-version says $file_node"
+            exit 1
+          fi
+          echo "node $file_node, agreed by both files"
+
+      # Reads the pnpm version from package.json's packageManager field.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v6
         with:
-          version: 2026.8.3
+          node-version-file: .node-version
+          cache: pnpm
 
       # --frozen-lockfile makes CI fail on a lockfile that does not match
       # package.json, rather than quietly resolving something new.
