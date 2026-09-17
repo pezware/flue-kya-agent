@@ -14,9 +14,12 @@ concurrency:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    # Pinned, not ubuntu-latest: that label migrates to Ubuntu 26 on
+    # 2026-10-19, and a runner image changing under a green pipeline is the
+    # kind of surprise every other pin in this repo exists to prevent.
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       # This repo's Actions policy allows GitHub-owned actions plus four named
       # patterns, and jdx/mise-action is not among them. So CI installs node
@@ -33,9 +36,10 @@ jobs:
           echo "node $file_node, agreed by both files"
 
       # Reads the pnpm version from package.json's packageManager field.
-      - uses: pnpm/action-setup@v4
+      # v4 runs on node20, which GitHub deprecated; v5 moved to node24.
+      - uses: pnpm/action-setup@v6
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .node-version
           cache: pnpm
