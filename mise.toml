@@ -1,9 +1,6 @@
-# mise drives local development. CI cannot use it: this repo's Actions policy
-# allows GitHub-owned actions plus four named patterns, and jdx/mise-action is
-# not among them, so CI installs node and pnpm directly.
-#
-# That leaves two files naming a node version, so CI asserts that the version
-# here equals .node-version before it installs anything.
+# The single source of truth for node and pnpm, on a laptop and in CI alike.
+# The CI job installs mise and runs the same versions named here, so the two
+# cannot drift.
 #
 # Wrangler is deliberately NOT pinned here: it is a devDependency, so pnpm
 # already fixes its version in the lockfile, and a second source of truth would
