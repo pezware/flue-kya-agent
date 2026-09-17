@@ -1,0 +1,6 @@
+# Every change to this repository needs an approving review from a code owner.
+#
+# Both accounts belong to the same maintainer. Two are listed on purpose:
+# GitHub never lets an author approve their own pull request, so a PR opened
+# by one account is approved by the other.
+* @achtungandy @arbeitandy
