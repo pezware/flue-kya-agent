@@ -1,0 +1,10 @@
+# The single source of truth for node and pnpm, on a laptop and in CI alike.
+# The CI job installs mise and runs the same versions named here, so the two
+# cannot drift.
+#
+# Wrangler is deliberately NOT pinned here: it is a devDependency, so pnpm
+# already fixes its version in the lockfile, and a second source of truth would
+# let the two drift.
+[tools]
+node = "22.23.1"
+pnpm = "12.4.2"

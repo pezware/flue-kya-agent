@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    # Pinned, not ubuntu-latest: that label migrates to Ubuntu 26 on
+    # 2026-10-19, and a runner image changing under a green pipeline is the
+    # kind of surprise every other pin in this repo exists to prevent.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      # mise reads node and pnpm from mise.toml, so one file governs both this
+      # job and a laptop. The mise version is pinned to match the one developers
+      # run, rather than tracking latest.
+      - uses: jdx/mise-action@v4
+        with:
+          version: 2026.8.3
+
+      # --frozen-lockfile makes CI fail on a lockfile that does not match
+      # package.json, rather than quietly resolving something new.
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm run check:types
+
+      - run: pnpm test
+
+      - run: pnpm run build
