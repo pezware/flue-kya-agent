@@ -9,10 +9,11 @@ import { useModel } from '@flue/runtime';
 // yet. It arrives with the gateway integration, once the gateway is reachable
 // from outside its own network.
 export function Kya() {
-	// Swap to 'cloudflare/@cf/moonshotai/kimi-k2.6' to run keyless on Workers AI.
-	// Anthropic is the default because this agent's job is calling tools, and
-	// tool-use accuracy is the thing least worth economising on.
-	useModel('anthropic/claude-haiku-4-5');
+	// xAI, reached directly rather than through a gateway. Flue's model list
+	// carries no cloudflare/ entries on the runtime version this repo pins, so
+	// the keyless Workers AI path the scaffold comment suggests is not
+	// available here. Needs XAI_API_KEY.
+	useModel('xai/grok-4.5');
 	return [
 		'You are an external agent that reaches tools through an identity-aware gateway.',
 		'You hold a delegation credential that proves who delegated authority to you.',
