@@ -1,9 +1,10 @@
 # Copy to .dev.vars for local development. .dev.vars is gitignored.
 # In a deployed Worker these are secrets: pnpm exec wrangler secret put <NAME>
 
-# Gates every route. Unset means the Worker refuses every request, which is the
-# intended behaviour — never ship this Worker without it.
+# Gates every route except the console shell at /. Unset means the Worker
+# refuses every request, which is the intended behaviour — never ship this
+# Worker without it.
 API_TOKEN=""
 
-# Model provider key. Not needed if you switch the agent to a Workers AI model.
-ANTHROPIC_API_KEY=""
+# Model provider key, for the xai/ models the agent uses.
+XAI_API_KEY=""

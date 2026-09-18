@@ -28,9 +28,12 @@ without a Workers runtime.
 ```bash
 mise install                 # node and pnpm, pinned in mise.toml
 pnpm install
-cp .dev.vars.example .dev.vars    # then fill in API_TOKEN
-pnpm run dev                 # agent at /agents/kya
+cp .dev.vars.example .dev.vars    # then fill in API_TOKEN and XAI_API_KEY
+pnpm run dev                 # console at http://localhost:5173
 ```
+
+Open the console, paste your `API_TOKEN`, and talk to the agent. It also shows
+the wallet's state and installs a credential.
 
 ```bash
 pnpm test                    # unit tests
@@ -42,27 +45,46 @@ Deploy to your own Cloudflare account:
 
 ```bash
 pnpm exec wrangler secret put API_TOKEN
-pnpm exec wrangler secret put ANTHROPIC_API_KEY
+pnpm exec wrangler secret put XAI_API_KEY
 pnpm run deploy
 ```
 
 ## Routes
 
-Every route requires `Authorization: Bearer $API_TOKEN`.
+Every route except the console shell requires `Authorization: Bearer $API_TOKEN`.
 
 | Method | Path | Purpose |
 |---|---|---|
-| `POST` | `/agents/kya/:conversation` | Send the agent one message |
+| `GET` | `/` | Operator console. Public — it carries no secret |
+| `POST` | `/agents/kya/:conversation` | Send the agent one message. Returns a submission handle |
+| `GET` | `/agents/kya/:conversation` | Read the conversation back |
 | `POST` | `/wallet/credential` | Install the delegation credential (`{"sdJwt": "..."}`) |
 | `GET` | `/wallet` | Whether the wallet can present, and why not if it cannot |
 | `DELETE` | `/wallet/credential` | Drop the credential |
 
 `GET /wallet` never returns the credential itself.
 
+A turn is asynchronous: the `POST` returns `202` with a `submissionId`, and the
+reply appears on the `GET` once the settlement lands.
+
+## Tests
+
+```bash
+pnpm test          # 27 tests, no Workers runtime and no model call
+```
+
+The wallet routes are tested against an in-memory wallet implementing the same
+`WalletHandle` contract as the Durable Object, so route behaviour, refusals and
+the expiry policy are covered without booting workerd or spending a token.
+
 ## Security posture
 
-- **Every route is gated, including the agent.** This Worker is reachable from
-  the open internet and holds both an LLM budget and a delegation credential.
+- **Every route is gated except the console shell**, which carries no secret.
+  The exemption is a named list, so a route added later is gated by default.
+  This Worker is reachable from the open internet and holds both a model budget
+  and a delegation credential.
+- **The console renders agent output with `textContent`**, never `innerHTML`.
+  A model's output is untrusted text.
 - **An unset `API_TOKEN` refuses every request.** A deployment that forgets the
   secret fails closed.
 - **The wallet reads `exp` from the credential**, not from the caller, so a
