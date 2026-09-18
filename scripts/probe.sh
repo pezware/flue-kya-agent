@@ -60,11 +60,17 @@ post_credential() {
 
 echo "probing $BASE"
 
-echo "== console shell is public"
+echo "== public surface"
 check "GET / needs no token"            200 "$(code "$BASE/")"
+# agent-manager fetches this server-side with no credential to offer, so it
+# must answer unauthenticated or registration cannot work.
+check "agent card needs no token"       200 "$(code "$BASE/.well-known/agent-card.json")"
+check "agent card publishes a did:jwk"  "did:jwk" \
+	"$(curl -s "$BASE/.well-known/agent-card.json" | sed -nE 's/.*"did":"(did:jwk):[^"]*".*/\1/p')"
 
 echo "== auth gate"
 check "no Authorization header"         401 "$(code "$BASE/wallet")"
+check "identity route is gated"         401 "$(code "$BASE/identity")"
 check "wrong token"                     401 "$(code -H 'authorization: Bearer nope' "$BASE/wallet")"
 check "correct token"                   200 "$(code -H "authorization: Bearer $API_TOKEN" "$BASE/wallet")"
 
