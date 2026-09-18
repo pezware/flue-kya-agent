@@ -110,8 +110,17 @@ export const CONSOLE_HTML = `<!doctype html>
   let conversation = 'ui-' + Math.random().toString(36).slice(2, 10);
   $('conv').textContent = conversation;
 
-  const token = () => { try { return sessionStorage.getItem(KEY) || ''; } catch { return ''; } };
-  try { $('token').value = token(); } catch {}
+  const remembered = () => { try { return sessionStorage.getItem(KEY) || ''; } catch { return ''; } };
+
+  // The field wins over what was remembered. Reading sessionStorage alone made
+  // a typed-but-unsaved token silently do nothing, which looks identical to a
+  // wrong token: the field appears filled and every call still 401s.
+  const token = () => ($('token').value || '').trim() || remembered();
+
+  const remember = () => { try { sessionStorage.setItem(KEY, token()); } catch {} };
+
+  try { $('token').value = remembered(); } catch {}
+  $('token').addEventListener('change', remember);
 
   const call = (path, init = {}) => fetch(path, {
     ...init,
@@ -125,9 +134,13 @@ export const CONSOLE_HTML = `<!doctype html>
   }
 
   async function refreshWallet() {
+    // Distinguish "you gave me no token" from "the token was refused". Both
+    // produced 401 before, and the first one reads as a server problem when it
+    // is really an empty field.
+    if (!token()) return setWallet('no token', 'bad');
     try {
       const r = await call('/wallet');
-      if (r.status === 401) return setWallet('unauthorized', 'bad');
+      if (r.status === 401) return setWallet('token refused', 'bad');
       const d = await r.json();
       setWallet(d.canPresent ? 'can present' : d.reason, d.canPresent ? 'good' : 'bad');
     } catch (e) { setWallet('unreachable', 'bad'); }
@@ -170,10 +183,9 @@ export const CONSOLE_HTML = `<!doctype html>
     render([], 'Timed out waiting for the agent.');
   }
 
-  $('save').onclick = () => {
-    try { sessionStorage.setItem(KEY, $('token').value.trim()); } catch {}
-    refreshWallet();
-  };
+  // Save only persists the token across a reload. Calls already use whatever
+  // is in the field, so forgetting to press it costs nothing.
+  $('save').onclick = () => { remember(); refreshWallet(); };
   $('refresh').onclick = refreshWallet;
   $('clear').onclick = async () => {
     await call('/wallet/credential', { method: 'DELETE' });
@@ -199,7 +211,12 @@ export const CONSOLE_HTML = `<!doctype html>
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ kind: 'user', body }),
       });
-      if (!r.ok) { render([], 'Submit failed (' + r.status + ')'); return; }
+      if (!r.ok) {
+        render([], r.status === 401
+          ? 'Submit refused (401). Check the API token above.'
+          : 'Submit failed (' + r.status + ')');
+        return;
+      }
       $('message').value = '';
       await poll(90000);
     } finally { $('send').disabled = false; }
