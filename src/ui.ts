@@ -56,6 +56,7 @@ export const CONSOLE_HTML = `<!doctype html>
   .msg.user { background: var(--bg); }
   .msg .who { font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); margin-bottom: 3px; }
   .msg.error { border-color: var(--bad); color: var(--bad); }
+  .msg.thinking { color: var(--muted); font-style: italic; border-style: dashed; }
   .empty { color: var(--muted); font-size: 13px; }
 </style>
 </head>
@@ -146,41 +147,134 @@ export const CONSOLE_HTML = `<!doctype html>
     } catch (e) { setWallet('unreachable', 'bad'); }
   }
 
-  function render(messages, error) {
+  // Conversation state, accumulated from the stream. Polling re-fetched the
+  // whole snapshot on a fixed 1.2s cadence, so a 2.7s turn was not shown until
+  // 3.6s. The stream delivers each delta as it is produced instead.
+  const convo = { order: [], byId: {}, error: '', thinking: false };
+
+  function resetConvo() {
+    convo.order = []; convo.byId = {}; convo.error = ''; convo.thinking = false;
+  }
+
+  function upsert(id, role) {
+    if (!convo.byId[id]) { convo.byId[id] = { role: role, text: '' }; convo.order.push(id); }
+    return convo.byId[id];
+  }
+
+  function textOf(message) {
+    return ((message || {}).parts || [])
+      .filter(p => p.type === 'text').map(p => p.text).join('');
+  }
+
+  function line(cls, who, text) {
+    const div = document.createElement('div');
+    div.className = cls;
+    div.innerHTML = '<div class="who"></div><div class="body"></div>';
+    div.querySelector('.who').textContent = who;
+    // textContent, never innerHTML: model output is untrusted text.
+    div.querySelector('.body').textContent = text;
+    return div;
+  }
+
+  function render() {
     const log = $('log');
     log.innerHTML = '';
-    if (!messages.length && !error) { log.innerHTML = '<p class="empty">No messages yet.</p>'; return; }
-    for (const m of messages) {
-      const text = (m.parts || []).filter(p => p.type === 'text').map(p => p.text).join('');
-      if (!text) continue;
-      const div = document.createElement('div');
-      div.className = 'msg ' + m.role;
-      div.innerHTML = '<div class="who"></div><div class="body"></div>';
-      div.querySelector('.who').textContent = m.role;
-      div.querySelector('.body').textContent = text;
-      log.appendChild(div);
+    const visible = convo.order.map(id => convo.byId[id]).filter(m => m.text);
+    if (!visible.length && !convo.error && !convo.thinking) {
+      log.innerHTML = '<p class="empty">No messages yet.</p>';
+      return;
     }
-    if (error) {
+    for (const m of visible) log.appendChild(line('msg ' + m.role, m.role, m.text));
+    if (convo.thinking) log.appendChild(line('msg thinking', 'assistant', 'thinking…'));
+    if (convo.error) {
       const div = document.createElement('div');
       div.className = 'msg error';
-      div.textContent = error;
+      div.textContent = convo.error;
       log.appendChild(div);
     }
   }
 
-  async function poll(deadlineMs) {
-    const started = Date.now();
-    while (Date.now() - started < deadlineMs) {
-      await new Promise(r => setTimeout(r, 1200));
-      const r = await call('/agents/kya/' + conversation);
-      if (!r.ok) continue;
-      const d = await r.json();
-      const failed = (d.settlements || []).find(s => s.outcome === 'failed');
-      render(d.messages || [], failed && failed.error ? failed.error.message : '');
-      const settled = (d.settlements || []).some(s => s.outcome === 'completed' || s.outcome === 'failed');
-      if (settled) return;
+  // Returns true when this chunk ends the turn we are waiting for.
+  function applyChunk(c, submissionId) {
+    if (c.type === 'conversation-reset') {
+      resetConvo();
+      for (const m of ((c.snapshot || {}).messages || [])) upsert(m.id, m.role).text = textOf(m);
+    } else if (c.type === 'message-appended') {
+      upsert(c.message.id, c.message.role).text = textOf(c.message);
+    } else if (c.type === 'message-started') {
+      upsert(c.messageId, 'assistant');
+    } else if (c.type === 'message-delta') {
+      // A reasoning model emits reasoning deltas before any answer text. Show
+      // that it is working rather than leaving the pane empty, but never print
+      // the reasoning itself.
+      if (c.kind === 'reasoning') { convo.thinking = true; }
+      else { upsert(c.messageId, 'assistant').text += (c.delta || ''); convo.thinking = false; }
+    } else if (c.type === 'message-completed') {
+      convo.thinking = false;
+    } else if (c.type === 'submission-settled' && c.submissionId === submissionId) {
+      convo.thinking = false;
+      if (c.outcome !== 'completed') {
+        convo.error = 'Turn ' + c.outcome
+          + ((c.error && c.error.message) ? ': ' + c.error.message : '');
+      }
+      return true;
     }
-    render([], 'Timed out waiting for the agent.');
+    return false;
+  }
+
+  // One SSE frame: lines until a blank line. A line starting with ':' is the
+  // server's 15s heartbeat comment and carries nothing.
+  function handleFrame(frame, submissionId) {
+    let name = 'message', data = '';
+    for (const l of frame.split('\n')) {
+      if (!l || l.charAt(0) === ':') continue;
+      if (l.indexOf('event:') === 0) name = l.slice(6).trim();
+      else if (l.indexOf('data:') === 0) data += l.slice(5).replace(/^ /, '');
+    }
+    if (name !== 'data' || !data) return false;
+    let chunks;
+    try { chunks = JSON.parse(data); } catch (e) { return false; }
+    let finished = false;
+    for (const c of (Array.isArray(chunks) ? chunks : [chunks])) {
+      if (applyChunk(c, submissionId)) finished = true;
+    }
+    return finished;
+  }
+
+  // EventSource cannot set an Authorization header and every route here is
+  // gated, so the stream is read from fetch's body instead.
+  async function streamTurn(offset, submissionId, timeoutMs) {
+    const url = '/agents/kya/' + conversation
+      + '?view=updates&offset=' + encodeURIComponent(offset) + '&live=sse';
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const r = await call(url, { headers: { accept: 'text/event-stream' }, signal: ctrl.signal });
+      if (!r.ok || !r.body) {
+        convo.error = 'Stream failed (' + r.status + ')';
+        return;
+      }
+      const reader = r.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      for (;;) {
+        const step = await reader.read();
+        if (step.done) break;
+        buffer += decoder.decode(step.value, { stream: true });
+        let cut;
+        while ((cut = buffer.indexOf('\n\n')) !== -1) {
+          const frame = buffer.slice(0, cut);
+          buffer = buffer.slice(cut + 2);
+          if (handleFrame(frame, submissionId)) { ctrl.abort(); return; }
+        }
+        render();
+      }
+    } catch (e) {
+      if (!convo.error && !ctrl.signal.aborted) convo.error = 'Stream interrupted: ' + e.message;
+    } finally {
+      clearTimeout(timer);
+      render();
+    }
   }
 
   // Save only persists the token across a reload. Calls already use whatever
@@ -212,13 +306,19 @@ export const CONSOLE_HTML = `<!doctype html>
         body: JSON.stringify({ kind: 'user', body }),
       });
       if (!r.ok) {
-        render([], r.status === 401
+        convo.error = r.status === 401
           ? 'Submit refused (401). Check the API token above.'
-          : 'Submit failed (' + r.status + ')');
+          : 'Submit failed (' + r.status + ')';
+        render();
         return;
       }
+      // The admission carries the offset recorded just before this submission,
+      // so the stream replays this turn from its own start with no gap.
+      const admission = await r.json();
       $('message').value = '';
-      await poll(90000);
+      convo.error = '';
+      render();
+      await streamTurn(admission.offset, admission.submissionId, 120000);
     } finally { $('send').disabled = false; }
   };
 
