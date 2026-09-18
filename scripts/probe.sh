@@ -30,12 +30,16 @@ fails=0
 
 # An SD-JWT shaped like the ones the identity gateway assembles:
 # document~disclosure~ , where document is header.payload.signature. The
-# signature is never verified here — the wallet only reads the exp claim.
+# signature is never verified here — the wallet reads only `exp` and `cnf`.
+#
+# `vct` is a placeholder on purpose. Nothing in this repo reads it, and a real
+# credential type URN names the issuing organisation, which this public repo
+# does not describe.
 mk_sdjwt() { # $1 = seconds from now ("none" for no exp), $2 = cnf x, $3 = cnf y
 	python3 - "$1" "${2:-}" "${3:-}" <<'PY'
 import base64, json, sys, time
 def b64(o): return base64.urlsafe_b64encode(json.dumps(o).encode()).decode().rstrip('=')
-claims = {"vct": "urn:iden2:ns:type:202503:DelegationCredential"}
+claims = {"vct": "urn:example:DelegationCredential"}
 if sys.argv[1] != "none":
     claims["exp"] = int(time.time()) + int(sys.argv[1])
 if sys.argv[2]:
