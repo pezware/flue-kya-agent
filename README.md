@@ -77,6 +77,22 @@ The wallet routes are tested against an in-memory wallet implementing the same
 `WalletHandle` contract as the Durable Object, so route behaviour, refusals and
 the expiry policy are covered without booting workerd or spending a token.
 
+For the same rules through the real Durable Object, the real auth middleware and
+real HTTP, run the probe against a running Worker:
+
+```bash
+./scripts/probe.sh                                   # local `pnpm run dev`
+BASE=https://<name>.workers.dev ./scripts/probe.sh   # a deployed Worker
+```
+
+13 checks, no model call, so it is free and deterministic. The token comes from
+`$API_TOKEN`, or from `.dev.vars` when that is unset; with neither it exits 2
+rather than reporting a pass it never made.
+
+This is the layer that caught both console defects. Neither the unit tests nor
+the type checker could see them, because both lived in the wiring rather than in
+a function.
+
 ## Security posture
 
 - **Every route is gated except the console shell**, which carries no secret.
