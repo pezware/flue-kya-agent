@@ -56,6 +56,8 @@ Every route except the console shell requires `Authorization: Bearer $API_TOKEN`
 | Method | Path | Purpose |
 |---|---|---|
 | `GET` | `/` | Operator console. Public — it carries no secret |
+| `GET` | `/.well-known/agent-card.json` | A2A discovery. **Public** — see below |
+| `GET` | `/identity` | The agent's DID and public JWK |
 | `POST` | `/agents/kya/:conversation` | Send the agent one message. Returns a submission handle |
 | `GET` | `/agents/kya/:conversation` | Read the conversation back |
 | `POST` | `/wallet/credential` | Install the delegation credential (`{"sdJwt": "..."}`) |
@@ -92,6 +94,29 @@ rather than reporting a pass it never made.
 This is the layer that caught both console defects. Neither the unit tests nor
 the type checker could see them, because both lived in the wiring rather than in
 a function.
+
+## The agent's identity
+
+On first use the wallet generates a **P-256** key pair and derives a `did:jwk`
+from the public half. That DID is what a delegation credential is issued
+against: the issuer copies the same JWK into the credential's `cnf` claim, so
+the credential is bound to this key.
+
+P-256 because that is what the issuing side binds to. The `kid` is the RFC 7638
+thumbprint, and the DID encodes the full JWK including `kid`.
+
+`GET /.well-known/agent-card.json` publishes that DID in an
+[A2A](https://a2a-protocol.org) Agent Card. It is **public on purpose**: the
+registering service fetches it server-side with no credential to offer, so a
+gated card could never be discovered. It exposes a DID and a capability list —
+both public identifiers by design, and no secret.
+
+**Where the private key lives.** It is persisted as a JWK in Durable Object
+storage, because a non-extractable `CryptoKey` cannot be stored — the runtime
+rejects it with `DataCloneError`. The key therefore never crosses a network and
+only this Durable Object's code can read it, but it is **not** protected from
+this Worker's own code. It is not non-extractable, and should not be described
+that way.
 
 ## Security posture
 
