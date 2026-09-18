@@ -8,11 +8,22 @@ import type { Presentation } from './policy.ts';
  * Depending on the shape rather than the binding is what lets these routes be
  * tested in Node, with no Workers runtime and no Flue module graph.
  */
+/** Why a credential was refused, or the lifetime it was accepted with. */
+export type StoreResult =
+	| { ok: true; expiresAt: number }
+	| { ok: false; reason: 'no-exp' | 'not-bound-to-this-agent' };
+
 export interface WalletHandle {
-	store(sdJwt: string): Promise<{ ok: boolean; expiresAt?: number }>;
+	store(sdJwt: string): Promise<StoreResult>;
 	present(): Promise<Presentation>;
 	clear(): Promise<void>;
+	identity(): Promise<{ did: string }>;
 }
+
+const REFUSALS: Record<'no-exp' | 'not-bound-to-this-agent', string> = {
+	'no-exp': 'credential carries no readable exp claim',
+	'not-bound-to-this-agent': "credential's cnf key is not this agent's key",
+};
 
 /**
  * The /wallet routes, over whichever wallet `resolve` returns for a request.
@@ -31,7 +42,7 @@ export function walletRoutes<B extends object>(resolve: (env: B) => WalletHandle
 		}
 		const result = await resolve(c.env).store(body.sdJwt);
 		if (!result.ok) {
-			return c.json({ error: 'credential carries no readable exp claim' }, 422);
+			return c.json({ error: REFUSALS[result.reason], reason: result.reason }, 422);
 		}
 		return c.json({ stored: true, expiresAt: result.expiresAt });
 	});

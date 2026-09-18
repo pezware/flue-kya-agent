@@ -28,14 +28,20 @@ export function isAuthorized(authorization: string | undefined, secret: string |
 }
 
 function constantTimeEquals(a: string, b: string): boolean {
-	// Length is not secret — a token's length leaks from the request size
-	// anyway — but the comparison below must not short-circuit on content.
-	if (a.length !== b.length) {
-		return false;
-	}
-	let difference = 0;
-	for (let i = 0; i < a.length; i += 1) {
-		difference |= a.charCodeAt(i) ^ b.charCodeAt(i);
+	// No early return on a length mismatch. An earlier version returned
+	// immediately and justified it by claiming a token's length leaks from the
+	// request size — which is false: the request size reveals the length of the
+	// CALLER's input, never the secret's. A caller could therefore have sampled
+	// the timing difference to learn how long the secret is.
+	//
+	// Folding the length difference into the accumulator and always walking the
+	// longer of the two removes that signal.
+	let difference = a.length ^ b.length;
+	const span = Math.max(a.length, b.length);
+	for (let i = 0; i < span; i += 1) {
+		// charCodeAt past the end is NaN, and NaN ^ n is n, so a shorter string
+		// still contributes a difference rather than silently matching.
+		difference |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);
 	}
 	return difference === 0;
 }

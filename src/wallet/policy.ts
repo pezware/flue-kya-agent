@@ -60,17 +60,56 @@ export function present(
  * a claim the wallet needs to know when to stop presenting the credential.
  */
 export function readExpiry(sdJwt: string): number | undefined {
-	const document = sdJwt.split('~')[0] ?? '';
-	const payload = document.split('.')[1];
+	const exp = readClaims(sdJwt)?.exp;
+	return typeof exp === 'number' ? exp : undefined;
+}
+
+/** The public key a credential is bound to, from its `cnf.jwk` claim. */
+export interface ConfirmationKey {
+	crv: string;
+	x: string;
+	y: string;
+}
+
+/**
+ * Read the confirmation key a credential is bound to.
+ *
+ * The issuer copies the holder's public JWK into `cnf`, so this is what says
+ * WHICH agent a credential belongs to. A wallet that does not check it will
+ * happily hold — and present — a credential issued to somebody else.
+ *
+ * Returns undefined when the claim is absent or malformed; the caller decides
+ * what that means, because this module never throws.
+ */
+export function readConfirmationKey(sdJwt: string): ConfirmationKey | undefined {
+	const cnf = readClaims(sdJwt)?.cnf as { jwk?: Record<string, unknown> } | undefined;
+	const jwk = cnf?.jwk;
+	if (jwk === undefined) {
+		return undefined;
+	}
+	const { crv, x, y } = jwk;
+	if (typeof crv !== 'string' || typeof x !== 'string' || typeof y !== 'string') {
+		return undefined;
+	}
+	return { crv, x, y };
+}
+
+/** True when a credential is bound to exactly this key. */
+export function boundTo(sdJwt: string, key: ConfirmationKey): boolean {
+	const cnf = readConfirmationKey(sdJwt);
+	return cnf !== undefined && cnf.crv === key.crv && cnf.x === key.x && cnf.y === key.y;
+}
+
+function readClaims(sdJwt: string): Record<string, unknown> | undefined {
+	// The issuer-signed document is everything before the first tilde.
+	const payload = (sdJwt.split('~')[0] ?? '').split('.')[1];
 	if (payload === undefined || payload === '') {
 		return undefined;
 	}
 	const claims = decodeBase64UrlJson(payload);
-	if (claims === undefined) {
-		return undefined;
-	}
-	const exp = (claims as Record<string, unknown>).exp;
-	return typeof exp === 'number' ? exp : undefined;
+	return typeof claims === 'object' && claims !== null
+		? (claims as Record<string, unknown>)
+		: undefined;
 }
 
 function decodeBase64UrlJson(segment: string): unknown {

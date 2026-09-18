@@ -59,8 +59,20 @@ export function jwkFromDid(did: string): PublicJwk | undefined {
 	}
 	try {
 		const json = new TextDecoder().decode(base64UrlDecode(did.slice(prefix.length)));
-		const parsed = JSON.parse(json) as PublicJwk;
-		return parsed.kty === 'EC' && typeof parsed.x === 'string' ? parsed : undefined;
+		const parsed = JSON.parse(json) as Record<string, unknown>;
+		// Every field is checked, not just two. The return type promises a
+		// complete PublicJwk, and handing back one with undefined coordinates
+		// pushes the failure to whoever uses them.
+		if (
+			parsed.kty !== 'EC' ||
+			parsed.crv !== 'P-256' ||
+			typeof parsed.kid !== 'string' ||
+			typeof parsed.x !== 'string' ||
+			typeof parsed.y !== 'string'
+		) {
+			return undefined;
+		}
+		return { kty: 'EC', crv: 'P-256', kid: parsed.kid, x: parsed.x, y: parsed.y };
 	} catch {
 		return undefined;
 	}

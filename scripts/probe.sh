@@ -31,16 +31,23 @@ fails=0
 # An SD-JWT shaped like the ones the identity gateway assembles:
 # document~disclosure~ , where document is header.payload.signature. The
 # signature is never verified here — the wallet only reads the exp claim.
-mk_sdjwt() { # $1 = seconds from now, or "none" for a credential with no exp
-	python3 - "$1" <<'PY'
+mk_sdjwt() { # $1 = seconds from now ("none" for no exp), $2 = cnf x, $3 = cnf y
+	python3 - "$1" "${2:-}" "${3:-}" <<'PY'
 import base64, json, sys, time
 def b64(o): return base64.urlsafe_b64encode(json.dumps(o).encode()).decode().rstrip('=')
-claims = {"vct": "urn:iden2:ns:type:202503:DelegationCredential", "sub": "did:key:zProbe"}
+claims = {"vct": "urn:iden2:ns:type:202503:DelegationCredential"}
 if sys.argv[1] != "none":
     claims["exp"] = int(time.time()) + int(sys.argv[1])
+if sys.argv[2]:
+    claims["cnf"] = {"jwk": {"kty": "EC", "crv": "P-256", "x": sys.argv[2], "y": sys.argv[3]}}
 print(f"{b64({'alg': 'ES256'})}.{b64(claims)}.c2lnbmF0dXJl~ZGlzY2xvc3VyZQ~")
 PY
 }
+
+# The agent's own key, so the probe can build a credential that is genuinely
+# bound to it — and one that is not.
+read -r AGENT_X AGENT_Y <<<"$(curl -s -H "authorization: Bearer $API_TOKEN" "$BASE/identity" \
+	| python3 -c 'import json,sys; j=json.load(sys.stdin)["jwk"]; print(j["x"], j["y"])')"
 
 check() { # $1 = name, $2 = expected, $3 = actual
 	if [ "$2" = "$3" ]; then
@@ -78,16 +85,28 @@ echo "== empty wallet"
 check "reports no-credential" \
 	'{"canPresent":false,"reason":"no-credential"}' "$(auth "$BASE/wallet")"
 
+echo "== mutation routes are gated too"
+check "POST credential needs a token"   401 \
+	"$(code -X POST -H 'content-type: application/json' -d '{}' "$BASE/wallet/credential")"
+check "DELETE credential needs a token" 401 "$(code -X DELETE "$BASE/wallet/credential")"
+
 echo "== storing a credential"
-check "accepts one carrying exp"        200 "$(post_credential "{\"sdJwt\":\"$(mk_sdjwt 3600)\"}")"
+check "accepts one bound to this agent" 200 \
+	"$(post_credential "{\"sdJwt\":\"$(mk_sdjwt 3600 "$AGENT_X" "$AGENT_Y")\"}")"
 check "wallet can now present"          '{"canPresent":true}' "$(auth "$BASE/wallet")"
 
 echo "== refusals"
-check "refuses a credential with no exp" 422 "$(post_credential "{\"sdJwt\":\"$(mk_sdjwt none)\"}")"
+# The security check: a credential issued to a different holder must not be
+# accepted, or the wallet would present somebody else's identity.
+check "refuses one bound to another key" 422 \
+	"$(post_credential "{\"sdJwt\":\"$(mk_sdjwt 3600 'NOT-THIS-AGENTS-X' "$AGENT_Y")\"}")"
+check "refuses a credential with no cnf" 422 "$(post_credential "{\"sdJwt\":\"$(mk_sdjwt 3600)\"}")"
+check "refuses a credential with no exp" 422 \
+	"$(post_credential "{\"sdJwt\":\"$(mk_sdjwt none "$AGENT_X" "$AGENT_Y")\"}")"
 check "refuses a body with no sdJwt"     400 "$(post_credential '{}')"
 check "refuses an empty sdJwt"           400 "$(post_credential '{"sdJwt":""}')"
 
-post_credential "{\"sdJwt\":\"$(mk_sdjwt -10)\"}" >/dev/null
+post_credential "{\"sdJwt\":\"$(mk_sdjwt -10 "$AGENT_X" "$AGENT_Y")\"}" >/dev/null
 check "an expired credential cannot present" \
 	'{"canPresent":false,"reason":"expired"}' "$(auth "$BASE/wallet")"
 

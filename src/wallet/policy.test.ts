@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_SKEW_SECONDS, present, readExpiry } from './policy.ts';
+import {
+	DEFAULT_SKEW_SECONDS,
+	boundTo,
+	present,
+	readConfirmationKey,
+	readExpiry,
+} from './policy.ts';
 
 /** Build an SD-JWT presentation shaped like the ones agent-identity assembles. */
 function sdJwt(claims: Record<string, unknown>, disclosures: string[] = []): string {
@@ -56,5 +62,42 @@ describe('readExpiry', () => {
 
 	it('returns undefined rather than throwing on undecodable base64', () => {
 		expect(readExpiry('aGVhZGVy.!!!not-base64!!!.c2ln')).toBeUndefined();
+	});
+});
+
+describe('readConfirmationKey', () => {
+	const key = { crv: 'P-256', x: 'XCOORD', y: 'YCOORD' };
+
+	it('reads the key a credential is bound to', () => {
+		expect(readConfirmationKey(sdJwt({ cnf: { jwk: { kty: 'EC', ...key } } }))).toEqual(key);
+	});
+
+	it('returns undefined when there is no cnf claim', () => {
+		expect(readConfirmationKey(sdJwt({ exp: NOW }))).toBeUndefined();
+	});
+
+	it('returns undefined when cnf.jwk is missing its coordinates', () => {
+		expect(readConfirmationKey(sdJwt({ cnf: { jwk: { kty: 'EC', crv: 'P-256' } } }))).toBeUndefined();
+	});
+});
+
+describe('boundTo', () => {
+	const key = { crv: 'P-256', x: 'XCOORD', y: 'YCOORD' };
+	const credential = sdJwt({ cnf: { jwk: { kty: 'EC', ...key } } });
+
+	it('accepts a credential bound to this exact key', () => {
+		expect(boundTo(credential, key)).toBe(true);
+	});
+
+	it('refuses a credential bound to a different key', () => {
+		expect(boundTo(credential, { ...key, x: 'SOMEONE-ELSE' })).toBe(false);
+	});
+
+	it('refuses a credential carrying no cnf claim at all', () => {
+		expect(boundTo(sdJwt({ exp: NOW }), key)).toBe(false);
+	});
+
+	it('refuses a string that is not a JWT', () => {
+		expect(boundTo('not-a-jwt', key)).toBe(false);
 	});
 });

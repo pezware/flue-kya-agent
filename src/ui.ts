@@ -247,11 +247,19 @@ export const CONSOLE_HTML = `<!doctype html>
 
   // EventSource cannot set an Authorization header and every route here is
   // gated, so the stream is read from fetch's body instead.
+  // A stream that never produces a frame boundary must not grow without limit.
+  const MAX_BUFFER = 1048576;
+
   async function streamTurn(offset, submissionId, timeoutMs) {
     const url = '/agents/kya/' + conversation
       + '?view=updates&offset=' + encodeURIComponent(offset) + '&live=sse';
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    // Three different reasons to stop, and they need different messages.
+    // Aborting is how a SUCCESSFUL turn ends too, so the abort flag alone
+    // cannot say whether anything went wrong.
+    let finished = false;
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; ctrl.abort(); }, timeoutMs);
     try {
       const r = await call(url, { headers: { accept: 'text/event-stream' }, signal: ctrl.signal });
       if (!r.ok || !r.body) {
@@ -264,19 +272,36 @@ export const CONSOLE_HTML = `<!doctype html>
       for (;;) {
         const step = await reader.read();
         if (step.done) break;
-        buffer += decoder.decode(step.value, { stream: true });
+        // SSE allows CRLF, CR or LF line endings. Cloudflare sends LF, but an
+        // intermediary may not, and framing on LF alone against a CRLF stream
+        // finds no boundary at all — the turn would simply never render.
+        buffer += decoder.decode(step.value, { stream: true })
+          .replace(/\\r\\n/g, '\\n').replace(/\\r/g, '\\n');
+        if (buffer.length > MAX_BUFFER) {
+          convo.error = 'Stream sent ' + buffer.length + ' bytes with no frame boundary.';
+          ctrl.abort();
+          return;
+        }
         let cut;
         while ((cut = buffer.indexOf('\\n\\n')) !== -1) {
           const frame = buffer.slice(0, cut);
           buffer = buffer.slice(cut + 2);
-          if (handleFrame(frame, submissionId)) { ctrl.abort(); return; }
+          if (handleFrame(frame, submissionId)) { finished = true; ctrl.abort(); return; }
         }
         render();
       }
+      if (!finished && !convo.error) convo.error = 'The stream ended before the turn settled.';
     } catch (e) {
-      if (!convo.error && !ctrl.signal.aborted) convo.error = 'Stream interrupted: ' + e.message;
+      if (convo.error) {
+        // already explained
+      } else if (timedOut) {
+        convo.error = 'The agent did not answer within ' + Math.round(timeoutMs / 1000) + 's.';
+      } else if (!finished) {
+        convo.error = 'Stream interrupted: ' + e.message;
+      }
     } finally {
       clearTimeout(timer);
+      convo.thinking = false;
       render();
     }
   }

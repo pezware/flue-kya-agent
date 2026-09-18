@@ -72,7 +72,7 @@ reply appears on the `GET` once the settlement lands.
 ## Tests
 
 ```bash
-pnpm test          # 27 tests, no Workers runtime and no model call
+pnpm test          # 63 tests, no Workers runtime and no model call
 ```
 
 The wallet routes are tested against an in-memory wallet implementing the same
@@ -87,7 +87,7 @@ real HTTP, run the probe against a running Worker:
 BASE=https://<name>.workers.dev ./scripts/probe.sh   # a deployed Worker
 ```
 
-13 checks, no model call, so it is free and deterministic. The token comes from
+20 checks, no model call, so it is free and deterministic. The token comes from
 `$API_TOKEN`, or from `.dev.vars` when that is unset; with neither it exits 2
 rather than reporting a pass it never made.
 
@@ -120,8 +120,15 @@ that way.
 
 ## Security posture
 
-- **Every route is gated except the console shell**, which carries no secret.
-  The exemption is a named list, so a route added later is gated by default.
+- **Two paths are public**: the console shell and the agent card. Neither
+  carries a secret, and the agent card must answer unauthenticated or a
+  registering service could never discover it. Everything else is gated. The
+  exemptions are a named list, so a route added later is gated by default, and
+  `src/core.test.ts` asserts the whole matrix — including that an unknown path
+  is refused rather than silently public.
+- **The wallet refuses a credential bound to another key.** A credential names
+  its holder in `cnf`; without that check the wallet would hold and present
+  somebody else's credential.
   This Worker is reachable from the open internet and holds both a model budget
   and a delegation credential.
 - **The console renders agent output with `textContent`**, never `innerHTML`.

@@ -9,10 +9,13 @@ function fakeWallet(): WalletHandle {
 		async store(sdJwt) {
 			const expiresAt = readExpiry(sdJwt);
 			if (expiresAt === undefined) {
-				return { ok: false };
+				return { ok: false, reason: 'no-exp' };
 			}
 			stored = { sdJwt, expiresAt };
 			return { ok: true, expiresAt };
+		},
+		async identity() {
+			return { did: 'did:jwk:test' };
 		},
 		async present() {
 			return present(stored, Math.floor(Date.now() / 1000));
