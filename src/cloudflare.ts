@@ -5,7 +5,14 @@
 
 import { DurableObject } from 'cloudflare:workers';
 import { type PublicJwk, didFromJwk, publicJwkFrom } from './wallet/did.ts';
-import { type Presentation, type StoredCredential, present, readExpiry } from './wallet/policy.ts';
+import type { StoreResult } from './wallet/routes.ts';
+import {
+	type Presentation,
+	type StoredCredential,
+	boundTo,
+	present,
+	readExpiry,
+} from './wallet/policy.ts';
 
 /** The agent's public identity: the DID a credential is issued against. */
 export interface AgentIdentity {
@@ -37,11 +44,21 @@ export class AgentWallet extends DurableObject {
 	 * cannot know when to stop presenting it, and presenting forever is worse
 	 * than refusing now.
 	 */
-	async store(sdJwt: string): Promise<{ ok: boolean; expiresAt?: number }> {
+	async store(sdJwt: string): Promise<StoreResult> {
 		const expiresAt = readExpiry(sdJwt);
 		if (expiresAt === undefined) {
-			return { ok: false };
+			return { ok: false, reason: 'no-exp' };
 		}
+
+		// A credential names the key it is bound to in `cnf`. Without this
+		// check the wallet would hold — and present — a credential issued to a
+		// different agent, which for a credential with no audience and no proof
+		// of possession is impersonation rather than a mix-up.
+		const { jwk } = await this.identity();
+		if (!boundTo(sdJwt, { crv: jwk.crv, x: jwk.x, y: jwk.y })) {
+			return { ok: false, reason: 'not-bound-to-this-agent' };
+		}
+
 		const credential: StoredCredential = { sdJwt, expiresAt };
 		await this.ctx.storage.put('credential', credential);
 		return { ok: true, expiresAt };
@@ -103,8 +120,15 @@ export class AgentWallet extends DurableObject {
 
 		const jwk = await publicJwkFrom(pub.x, pub.y);
 		const identity: AgentIdentity = { did: didFromJwk(jwk), jwk };
-		await this.ctx.storage.put('identity', identity);
-		await this.ctx.storage.put('signingJwk', await crypto.subtle.exportKey('jwk', pair.privateKey));
+
+		// ONE put, not two. A multi-key put is atomic; two sequential puts are
+		// not, and a failure between them would publish a DID whose signing key
+		// was never stored — an identity that can never prove possession, with
+		// the fast path above returning it forever.
+		await this.ctx.storage.put({
+			identity,
+			signingJwk: await crypto.subtle.exportKey('jwk', pair.privateKey),
+		});
 		return identity;
 	}
 }

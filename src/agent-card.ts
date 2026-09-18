@@ -29,9 +29,13 @@ export interface AgentCard {
  */
 export function agentCard(did: string, origin: string): AgentCard {
 	return {
+		// The card must describe what this agent CAN do, not what it is meant to
+		// do. A registering operator delegates authority on the strength of this
+		// document, and in an identity system an unhonoured claim is the wrong
+		// thing to publish. Update it when the gateway client lands, not before.
 		name: 'KYA Agent',
 		description:
-			'External agent on Cloudflare Workers. Holds its own delegation credential in a Durable Object wallet and presents it to an identity-aware MCP gateway.',
+			'External agent on Cloudflare Workers. Holds a delegation credential bound to its own key in a Durable Object wallet. Tool use through a verifying gateway is not wired yet.',
 		version: '0.1.0',
 		provider: {
 			organization: 'pezware',
@@ -46,11 +50,11 @@ export function agentCard(did: string, origin: string): AgentCard {
 		defaultOutputModes: ['text/plain', 'application/json'],
 		skills: [
 			{
-				id: 'identity-aware-tool-use',
-				name: 'Identity-aware tool use',
+				id: 'conversation',
+				name: 'Conversation',
 				description:
-					'Reaches MCP tools through a gateway that verifies a delegation credential, and reports a refusal rather than working around it.',
-				tags: ['mcp', 'mcp-i', 'kya', 'delegation', 'identity'],
+					'Answers questions over the A2A interface above. Reports a refusal plainly rather than working around it.',
+				tags: ['conversation', 'a2a'],
 			},
 		],
 		did,
