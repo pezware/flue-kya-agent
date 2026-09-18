@@ -226,7 +226,11 @@ export const CONSOLE_HTML = `<!doctype html>
   // server's 15s heartbeat comment and carries nothing.
   function handleFrame(frame, submissionId) {
     let name = 'message', data = '';
-    for (const l of frame.split('\n')) {
+    // Every backslash in this file is written twice, comments included. The
+    // page is one template literal, so a single backslash is consumed at build
+    // time and emits a real newline into the served script, which leaves an
+    // unterminated string and kills the whole script.
+    for (const l of frame.split('\\n')) {
       if (!l || l.charAt(0) === ':') continue;
       if (l.indexOf('event:') === 0) name = l.slice(6).trim();
       else if (l.indexOf('data:') === 0) data += l.slice(5).replace(/^ /, '');
@@ -262,7 +266,7 @@ export const CONSOLE_HTML = `<!doctype html>
         if (step.done) break;
         buffer += decoder.decode(step.value, { stream: true });
         let cut;
-        while ((cut = buffer.indexOf('\n\n')) !== -1) {
+        while ((cut = buffer.indexOf('\\n\\n')) !== -1) {
           const frame = buffer.slice(0, cut);
           buffer = buffer.slice(cut + 2);
           if (handleFrame(frame, submissionId)) { ctrl.abort(); return; }
